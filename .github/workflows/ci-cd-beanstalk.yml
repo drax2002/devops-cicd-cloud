@@ -11,23 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout code
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
 
+      # 3️⃣ Install dependencies
       - name: Install dependencies
         run: npm install
 
+      # 4️⃣ Run tests
       - name: Run tests
         run: npm test
 
+      # 5️⃣ Zip application
       - name: Zip application
         run: zip -r deploy.zip .
 
+      # 6️⃣ Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -35,12 +41,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # 7️⃣ Upload and deploy
       - name: Upload app to S3 and deploy to Beanstalk
         run: |
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          S3_BUCKET="${{ secrets.APPLICATION_NAME }}-deploy-bucket"
-          
-          # Create bucket if not exists
+          APPLICATION_NAME="${{ secrets.APPLICATION_NAME }}"
+          ENVIRONMENT_NAME="${{ secrets.ENVIRONMENT_NAME }}"
+          S3_BUCKET="$(echo $APPLICATION_NAME | tr '[:upper:]' '[:lower:]')-deploy-bucket"
+
+          # Create S3 bucket if it doesn't exist
           if ! aws s3 ls "s3://$S3_BUCKET" 2>&1 | grep -q 'NoSuchBucket'; then
             echo "Bucket $S3_BUCKET exists"
           else
@@ -52,34 +61,30 @@ jobs:
 
           # Create new application version
           aws elasticbeanstalk create-application-version \
-            --application-name "${{ secrets.APPLICATION_NAME }}" \
+            --application-name "$APPLICATION_NAME" \
             --version-label "ver-$TIMESTAMP" \
             --source-bundle S3Bucket="$S3_BUCKET",S3Key="deploy-$TIMESTAMP.zip"
-            # Check if environment exists
-ENV_EXIST=$(aws elasticbeanstalk describe-environments \
-  --application-name "$APPLICATION_NAME" \
-  --environment-names "$ENVIRONMENT_NAME" \
-  --query "Environments[0].EnvironmentName" --output text)
 
-if [ "$ENV_EXIST" == "None" ]; then
-  echo "Environment does not exist, creating..."
-  aws elasticbeanstalk create-environment \
-    --application-name "$APPLICATION_NAME" \
-    --environment-name "$ENVIRONMENT_NAME" \
-    --solution-stack-name "64bit Amazon Linux 2 v5.6.0 running Node.js 18" \
-    --version-label "ver-$TIMESTAMP"
-else
-  echo "Environment exists, updating..."
-  aws elasticbeanstalk update-environment \
-    --environment-name "$ENVIRONMENT_NAME" \
-    --version-label "ver-$TIMESTAMP"
-fi
+          # Check if environment exists
+          ENV_EXIST=$(aws elasticbeanstalk describe-environments \
+            --application-name "$APPLICATION_NAME" \
+            --environment-names "$ENVIRONMENT_NAME" \
+            --query "Environments[0].EnvironmentName" --output text)
 
+          if [ "$ENV_EXIST" == "None" ]; then
+            echo "Environment does not exist, creating..."
+            aws elasticbeanstalk create-environment \
+              --application-name "$APPLICATION_NAME" \
+              --environment-name "$ENVIRONMENT_NAME" \
+              --solution-stack-name "64bit Amazon Linux 2 v5.6.0 running Node.js 18" \
+              --version-label "ver-$TIMESTAMP"
+          else
+            echo "Environment exists, updating..."
+            aws elasticbeanstalk update-environment \
+              --environment-name "$ENVIRONMENT_NAME" \
+              --version-label "ver-$TIMESTAMP"
+          fi
 
-          # Update environment to new version
-          aws elasticbeanstalk update-environment \
-            --environment-name "${{ secrets.ENVIRONMENT_NAME }}" \
-            --version-label "ver-$TIMESTAMP"
-
+      # 8️⃣ Deployment complete
       - name: Deployment complete
         run: echo "✅ Application deployed successfully to Elastic Beanstalk!"
