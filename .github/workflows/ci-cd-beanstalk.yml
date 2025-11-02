@@ -1,0 +1,65 @@
+name: CI/CD to AWS Elastic Beanstalk
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        run: npm test
+
+      - name: Zip application
+        run: zip -r deploy.zip .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload app to S3 and deploy to Beanstalk
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          S3_BUCKET="${{ secrets.APPLICATION_NAME }}-deploy-bucket"
+          
+          # Create bucket if not exists
+          if ! aws s3 ls "s3://$S3_BUCKET" 2>&1 | grep -q 'NoSuchBucket'; then
+            echo "Bucket $S3_BUCKET exists"
+          else
+            aws s3 mb "s3://$S3_BUCKET"
+          fi
+
+          # Upload zip file
+          aws s3 cp deploy.zip s3://$S3_BUCKET/deploy-$TIMESTAMP.zip
+
+          # Create new application version
+          aws elasticbeanstalk create-application-version \
+            --application-name "${{ secrets.APPLICATION_NAME }}" \
+            --version-label "ver-$TIMESTAMP" \
+            --source-bundle S3Bucket="$S3_BUCKET",S3Key="deploy-$TIMESTAMP.zip"
+
+          # Update environment to new version
+          aws elasticbeanstalk update-environment \
+            --environment-name "${{ secrets.ENVIRONMENT_NAME }}" \
+            --version-label "ver-$TIMESTAMP"
+
+      - name: Deployment complete
+        run: echo "✅ Application deployed successfully to Elastic Beanstalk!"
