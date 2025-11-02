@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
+      # 1️⃣ Checkout source code
       - name: Checkout source code
         uses: actions/checkout@v4
 
@@ -66,11 +66,12 @@ jobs:
             --version-label "ver-$TIMESTAMP" \
             --source-bundle S3Bucket="$S3_BUCKET",S3Key="deploy-$TIMESTAMP.zip"
 
-          # Check if environment exists (handles empty response)
+          # Check if environment exists
           ENV_EXIST=$(aws elasticbeanstalk describe-environments \
             --application-name "$APPLICATION_NAME" \
             --environment-names "$ENVIRONMENT_NAME" \
-            --query "Environments[0].EnvironmentName" --output text)
+            --query "Environments[0].EnvironmentName" \
+            --output text)
 
           if [ -z "$ENV_EXIST" ] || [ "$ENV_EXIST" == "None" ]; then
             echo "Environment does not exist, creating..."
